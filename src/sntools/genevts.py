@@ -5,8 +5,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from importlib import import_module
 import random
-import uproot
-
+import sys
 try:
     import sntools  # if sntools was installed via pip
 except ImportError:
@@ -40,7 +39,7 @@ def main():
         for flv in mod_channel.possible_flavors:
             channel_instance = mod_channel.Channel(flv)
             for flux in flux_at_detector.components[flv]:
-                results.append(pool.submit(gen_evts, channel_instance, flux, n_targets, args.randomseed + random.random(), args.verbose))
+                results.append(pool.submit(gen_evts, channel_instance, flux, n_targets, args.theta, args.phi, args.randomseed + random.random(), args.verbose))
 
     events = []
     for result in as_completed(results):
@@ -48,28 +47,24 @@ def main():
 
     # Sort events by time and write them to an output file
     events.sort(key=lambda evt: evt.time)
-    for evt in events:
-        evt.vertex = args.detector.generate_random_vertex()
+    with open(args.output, "a") as outfile:
+        if args.verbose:  # write parameters to file as a comment
+            outfile.write(f"# Generated on {datetime.now()} with the options:\n")
+            outfile.write(f"# {args}\n")
+        if args.mcformat == 'NUANCE':
+            for (i, evt) in enumerate(events):
+                evt.vertex = args.detector.generate_random_vertex()
+                outfile.write(evt.nuance_string(i))
 
-    if args.mcformat in ('NUANCE', 'RATPAC'):
-        with open(args.output, "w") as outfile:
-            if args.verbose:  # write parameters to file as a comment
-                outfile.write(f"# Generated on {datetime.now()} with the options:\n")
-                outfile.write(f"# {args}\n")
-            if args.mcformat == 'NUANCE':
-                for (i, evt) in enumerate(events):
-                    outfile.write(evt.nuance_string(i))
-                outfile.write("$ stop\n")
-            if args.mcformat == 'RATPAC':
-                for (i, evt) in enumerate(events):
-                    outfile.write(evt.ratpac_string(i, events))
-    if args.mcformat == 'ROOT_JUNO':
-        fname =	args.output+".root"
-        root_outfile = uproot.recreate(fname)
-        root_outfile.mktree("SNEvents",{"nparticles": "uint64", "origPDGID":"int32", "nuE":"double", "pdgid": ("int32",(2,)),"t": ("float64",(2,)),
-                                        "px": ("float64",(2,)),"py":("float64",(2,)),"pz":("float64",(2,)),"m":("float64",(2,)), "channel": "int64"})
-        for (i, evt) in enumerate(events):
-            evt.juno_string(i, root_outfile)
+        if args.mcformat == 'RATPAC':
+            for (i, evt) in enumerate(events):
+                evt.vertex = args.detector.generate_random_vertex()
+                outfile.write(evt.ratpac_string(i, events))
+        if args.mcformat == 'MYFORMAT':
+            for (i, evt) in enumerate(events):
+                evt.vertex = args.detector.generate_random_vertex()
+                outfile.write(evt.myformat_string(i, events))
+
 
 def parse_command_line_options():
     """Define and parse command line options."""
@@ -78,15 +73,13 @@ def parse_command_line_options():
     parser.add_argument("input_file", help="Name or common prefix of the input file(s). Required.")
 
     choices = ("gamma", "nakazato", "princeton", "totani", "warren2020",
-               "SNEWPY-Bollig_2016", "SNEWPY-Fornax_2021", "SNEWPY-Fornax_2022", "SNEWPY-Kuroda_2020",
-               "SNEWPY-Mori_2023", "SNEWPY-Nakazato_2013", "SNEWPY-OConnor_2015", "SNEWPY-Sukhbold_2015",
-               "SNEWPY-Tamborra_2014", "SNEWPY-Walk_2018", "SNEWPY-Walk_2019", "SNEWPY-Zha_2021")
+               "SNEWPY-Bollig_2016", "SNEWPY-Fornax_2021", "SNEWPY-Kuroda_2020", "SNEWPY-Nakazato_2013", "SNEWPY-OConnor_2015", "SNEWPY-Sukhbold_2015", "SNEWPY-Tamborra_2014", "SNEWPY-Walk_2018", "SNEWPY-Walk_2019", "SNEWPY-Zha_2021")
     parser.add_argument("-f", "--format", metavar="FORMAT", choices=choices, default=choices[1],
                         help="Format of input file(s). Choices: %(choices)s. Default: %(default)s.")
 
     parser.add_argument("-o", "--output", metavar="FILE", default="outfile.kin", help="Name of the output file. Default: %(default)s.")
 
-    choices = ("NUANCE", "RATPAC","ROOT_JUNO")
+    choices = ("NUANCE", "RATPAC", "MYFORMAT")
     parser.add_argument("-m", "--mcformat", metavar="MCFORMAT", choices=choices, default=choices[0],
                         help="MC output format for simulations. Choices: %(choices)s. Default: %(default)s.")
 
@@ -100,17 +93,21 @@ def parse_command_line_options():
                         help="Transformation between neutrino flux inside SN and flux in the detector on Earth. \
                               Choices: %(choices)s. Default: %(default)s.")
 
-    choices = ("ibd", "es", "ps", "o16e", "o16eb", "c12e", "c12eb", "c12nc")
+    choices = ("ibd", "es", "ps", "o16e", "o16eb", "o16nc_n", "o16nc_p", "c12e", "c12eb", "c12nc")
     parser.add_argument("-c", "--channel", metavar="INTCHANNEL", choices=choices, default="all",
                         help="Interaction channels to consider. Currently supported: inverse beta decay (ibd), \
                               electron scattering (es), proton scattering (ps), nu_e + oxygen CC (o16e), nu_e-bar + oxygen CC (o16eb), \
+                              nu + oxygen NC with neutron emission (o16nc_n) or proton emission (o16nc_p), \
                               nu_e + carbon CC (c12e), nu_e-bar + carbon CC (c12eb) and nu + carbon NC (c12nc). \
                               Default: All channels available in selected detector.")
 
     parser.add_argument("-d", "--detector", metavar="DETECTOR", choices=supported_detectors, default="HyperK",
                         help="Detector configuration. Choices: %(choices)s. Default: %(default)s.")
 
-    parser.add_argument("--distance", type=float, default=10.0, help="Distance to supernova in kpc. Default: %(default)s.")
+    parser.add_argument("--distance", type=float, default=10.0, help="Distance to supernova in kpc. Default: %(default)s.") 
+    parser.add_argument("--theta", type=float, default=0.0, help="Theta direction of the supernova. Default: %(default)s.")
+    
+    parser.add_argument("--phi", type=float, default=0.0, help="Phi direction of the supernova. Default: %(default)s.")
 
     parser.add_argument("--starttime", metavar="T", type=float,
                         help="Start generating events at T milliseconds. Default: First time bin in input file.")

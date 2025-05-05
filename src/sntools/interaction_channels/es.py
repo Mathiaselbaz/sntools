@@ -10,7 +10,7 @@ Note that it uses different conventions (e.g. minus signs) from Bahcall et al.!
 
 from math import pi, sqrt, log
 from scipy import integrate
-
+import numpy as np
 from sntools.event import Event
 from sntools.interaction_channels import BaseChannel, cherenkov_threshold
 
@@ -33,7 +33,7 @@ def spence(n):
 
 
 class Channel(BaseChannel):
-    def generate_event(self, eNu, dirx, diry, dirz):
+    def generate_event(self, eNu, cosT, theta, phi, dirx, diry, dirz):
         """Return an event with the appropriate incoming/outgoing particles.
 
         Input:
@@ -41,11 +41,11 @@ class Channel(BaseChannel):
             dirx, diry, dirz: direction of outgoing particle (normalized to 1)
         """
         incoming_flv = {'e': 12, 'eb': -12, 'x': 14, 'xb': -14}[self.flavor]
-        eE = self.get_eE(eNu, dirz)
+        eE = self.get_eE(eNu, cosT)
 
         evt = Event(98 if incoming_flv > 0 else -98)
-        evt.incoming_particles.append((incoming_flv, eNu, 0, 0, 1))  # incoming neutrino
-        evt.incoming_particles.append((11, mE, 0, 0, 1))  # electron at rest
+        evt.incoming_particles.append((incoming_flv, eNu, np.sin(-theta)*np.cos(-phi), np.sin(-theta)*np.sin(-phi), np.cos(-theta)))  # incoming neutrino
+        evt.incoming_particles.append((11, mE, np.sin(-theta)*np.cos(-phi), np.sin(-theta)*np.sin(-phi), np.cos(-theta)))  # electron at rest
         evt.outgoing_particles.append((11, eE, dirx, diry, dirz))  # outgoing electron
         return evt
 

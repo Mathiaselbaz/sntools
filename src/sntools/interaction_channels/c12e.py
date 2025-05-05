@@ -11,7 +11,7 @@ total cross section, we approximate a DiracDelta function with one that is
 
 from sntools.event import Event
 from sntools.interaction_channels import BaseChannel, cherenkov_threshold
-
+import numpy as np
 e_thr = 17.338  # energy threshold of this reaction (arXiv:nucl-th/0001050, p. 7)
 epsilon = 0.001  # for approximating DiracDelta distribution below
 
@@ -20,17 +20,17 @@ possible_flavors = ["e"]
 
 
 class Channel(BaseChannel):
-    def generate_event(self, eNu, dirx, diry, dirz):
+    def generate_event(self, eNu, cosT, theta, phi, dirx, diry, dirz):
         """Return an event with the appropriate incoming/outgoing particles.
 
         Input:
             eNu: neutrino energy
             dirx, diry, dirz: direction of outgoing particle (normalized to 1)
         """
-        eE = self.get_eE(eNu, dirz)
+        eE = self.get_eE(eNu, cosT)
         evt = Event(1006012)
-        evt.incoming_particles.append([12, eNu, 0, 0, 1])  # incoming nu_e
-        evt.incoming_particles.append((6012, 11178, 0, 0, 1))  # carbon nucleus at rest
+        evt.incoming_particles.append([12, eNu,  np.sin(-theta)*np.cos(-phi), np.sin(-theta)*np.sin(-phi), np.cos(-theta)])  # incoming nu_e
+        evt.incoming_particles.append((6012, 11178, np.sin(-theta)*np.cos(-phi), np.sin(-theta)*np.sin(-phi), np.cos(-theta)))  # carbon nucleus at rest
         evt.outgoing_particles.append([11, eE, dirx, diry, dirz])  # outgoing electron
         return evt
 

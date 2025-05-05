@@ -9,7 +9,7 @@ Written by S. Valder (2022), based on other interaction channels in sntools.
 
 from math import pi, sqrt, log
 from scipy import integrate
-
+import numpy as np
 from sntools.event import Event
 from sntools.interaction_channels import BaseChannel, cherenkov_threshold
 
@@ -27,7 +27,7 @@ cV = (1 - (4 * sin2theta_w)) / 2 # axial vector coupling constant
 
 
 class Channel(BaseChannel):
-    def generate_event(self, eNu, dirx, diry, dirz):
+    def generate_event(self, eNu, cosT, theta, phi, dirx, diry, dirz):
         """Return an event with the appropriate incoming/outgoing particles.
 
         Input:
@@ -35,11 +35,11 @@ class Channel(BaseChannel):
             dirx, diry, dirz: direction of outgoing particle (normalized to 1)
         """
         incoming_flv = {'e': 12, 'eb': -12, 'x': 14, 'xb': -14}[self.flavor]
-        eE = self.get_eE(eNu, dirz)
+        eE = self.get_eE(eNu, cosT)
 
         evt = Event(2001001 if incoming_flv > 0 else -2001001)
-        evt.incoming_particles.append((incoming_flv, eNu, 0, 0, 1))  # incoming neutrino
-        evt.incoming_particles.append((2212, mP, 0, 0, 1))  # proton at rest
+        evt.incoming_particles.append((incoming_flv, eNu,  np.sin(-theta)*np.cos(-phi), np.sin(-theta)*np.sin(-phi), np.cos(-theta))) # incoming neutrino
+        evt.incoming_particles.append((2212, mP,  np.sin(-theta)*np.cos(-phi), np.sin(-theta)*np.sin(-phi), np.cos(-theta))) # proton at rest
         evt.outgoing_particles.append((2212, eE, dirx, diry, dirz))  # outgoing proton
         return evt
     

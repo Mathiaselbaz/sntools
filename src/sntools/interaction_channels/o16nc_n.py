@@ -1,9 +1,10 @@
-"""Implementation of nu + 12C -> nu' + 12C*, 12C* -> 12C + gamma
+"""Implementation of:
+    nu + 16O -> nu' + 16O*, 16O* -> 15O + n.
 
-Based on Donnelly & Peccei, Phys.Rept. 50 (1979) 1, eq. (4.53).
-We assume beta * kappa = 1.11, based on an experimental determination, see
-Armbruster et al. (KARMEN Collaboration), Phys.Lett.B423 (1998), p. 15.
-This is higher than the SM prediction (=1) but consistent with SNOwGLoBES.
+Based on data provided in Suzuki et al. 2018 (Phys. Rev. C 98, 034613).
+A spline fit is used to obtain cross-section as a function of neutrino energy.
+The threshold energy of the interaction is estimated from a by-eye fit as no 
+explicit threshold energy could be found.
 
 To determine the the differential cross section dSigma/dE (eNu, eE) from the
 total cross section, we approximate a DiracDelta function with one that is
@@ -12,12 +13,22 @@ total cross section, we approximate a DiracDelta function with one that is
 
 from sntools.event import Event
 from sntools.interaction_channels import BaseChannel
+from scipy.interpolate import interp1d
+import random
 import numpy as np
-e_thr = 15.11  # energy threshold of this reaction
+e_thr = 19.5  # approximate energy threshold of neutron emission
+mN = 939.7 # neutron mass (MeV)
 epsilon = 0.001  # for approximating DiracDelta distribution below
 
 # List of neutrino flavors ("e", "eb", "x", "xb") that interact in this channel.
 possible_flavors = ("e", "eb", "x", "xb")
+
+# Energies (MeV) and cross-sections (10^-42 cm^2) for o16nc neutron emission taken from Suzuki et al 2018.
+data = [[e_thr, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0, 55.0, 60.0, 65.0, 70.0, 80.0, 90.0, 100],
+        [0.0, 0.000193, 0.0163, 0.129, 0.48, 1.22, 2.49, 4.44, 7.17, 10.7, 15.2, 20.4, 32.8, 46.8, 61.1]]
+
+# Spline fit of the partial cross-section as a function of energy
+fit = interp1d(data[0], data[1], kind='cubic', fill_value='extrapolate', bounds_error = False)
 
 
 class Channel(BaseChannel):
@@ -31,16 +42,15 @@ class Channel(BaseChannel):
         # Note: `self.flavor` is set during __init__
         nu_flv = {'e': 12, 'eb': -12, 'x': 14, 'xb': -14}[self.flavor]
 
-        evt = Event(2006012 if nu_flv > 0 else -2006012)
+        eE = self.get_eE(eNu, cosT)
+
+        evt = Event(2008016 if nu_flv > 0 else -2008016)
         evt.incoming_particles.append([nu_flv, eNu,  np.sin(-theta)*np.cos(-phi), np.sin(-theta)*np.sin(-phi), np.cos(-theta)])  # incoming nu
-        evt.incoming_particles.append((6012, 11178,  np.sin(-theta)*np.cos(-phi), np.sin(-theta)*np.sin(-phi), np.cos(-theta)))  # carbon nucleus at rest
-        evt.outgoing_particles.append([22, e_thr, dirx, diry, dirz])  # emitted gamma
+        evt.incoming_particles.append((8016, 14900,  np.sin(-theta)*np.cos(-phi), np.sin(-theta)*np.sin(-phi), np.cos(-theta))) # oxygen-16 nucleus at rest
+        evt.outgoing_particles.append([2112, eE, dirx, diry, dirz])  # emitted neutron
         # evt.outgoing_particles.append([nu_flv, eNu-e_thr, 0, 0, 1])  # outgoing nu
         return evt
-
-    # List with minimum & maximum energy of incoming neutrino.
-    bounds_eNu = (e_thr, 100)
-
+    
     def bounds_eE(self, eNu, *args):
         """Return kinematic bounds for integration over eE.
 
@@ -50,8 +60,9 @@ class Channel(BaseChannel):
         Output:
             list with minimum & maximum allowed energy of outgoing (detected) particle
         """
-        return [self.get_eE(eNu) - epsilon, self.get_eE(eNu) + epsilon]
-
+        eE = self.get_eE(eNu)
+        return [eE - epsilon, eE + epsilon]
+        
     def get_eE(self, eNu, cosT=0):
         """Return energy (in MeV) of outgoing (detected) particle.
 
@@ -59,8 +70,9 @@ class Channel(BaseChannel):
             eNu:  neutrino energy (in MeV)
             cosT: cosine of the angle between neutrino and outgoing (detected) particle
         """
-        return e_thr
-
+        eE = random.random()*(eNu-e_thr) + mN       
+        return eE
+    
     def dSigma_dE(self, eNu, eE):
         """Return differential cross section in MeV^-2.
 
@@ -68,17 +80,18 @@ class Channel(BaseChannel):
             eNu: neutrino energy
             eE:  energy of outgoing (detected) particle
         """
-        if eNu < e_thr or abs(self.get_eE(eNu) - eE) > epsilon:
-            # This should never happen, since we set bounds for eE and eNu accordingly above
+        if eNu < e_thr:
+            # This should never happen, since we set bounds for eNu accordingly above
             # ... but just in case:
             return 0
 
-        sigma = 1.08E-38 * ((eNu - e_thr) / 939)**2 * 1.11**2  # Assume beta * kappa = 1.11 (see discussion above)
+        sigma = fit(eNu)*10**(-42)  # cross-section (in cm^2) at eNu from the fit of Suzuki et al. 2018 data
         sigma *= (5.067731E10)**2  # convert cm^2 to MeV^-2: http://www.wolframalpha.com/input/?i=cm%2F(hbar+*+c)+in+MeV%5E(-1)
         return sigma / (2 * epsilon)  # Ensure that integration over eE yields sigma
 
     def dSigma_dCosT(self, eNu, cosT):
-        """Return differential cross section in MeV^-2 as a function of the emission angle of the outgoing (detected) particle.
+        """Return differential cross section in MeV^-2 as a function of the 
+        emission angle of the outgoing (detected) particle.
 
         Input:
             eNu:  neutrino energy (MeV)
@@ -87,8 +100,13 @@ class Channel(BaseChannel):
         # Energy dependence is unclear, so we use a constant value for now.
         if abs(cosT) > 1:
             return 0
-        return 0.5
+        sigma = fit(eNu)*10**(-42)  # cross-section (in cm^2) at eNu from the fit of Suzuki et al. 2018 data
+        sigma *= (5.067731E10)**2  # convert cm^2 to MeV^-2: http://www.wolframalpha.com/input/?i=cm%2F(hbar+*+c)+in+MeV%5E(-1)
+        return 0.5*sigma
+    
+    # List with minimum & maximum energy of incoming neutrino.
+    bounds_eNu = (e_thr, 100)
 
     def _bounds_eNu(self, eE):
-        """Min/max neutrino energy that can produce a given positron energy."""
-        return self.bounds_eNu
+        """Min/max neutrino energy that can produce a given neutron energy."""
+        return (e_thr + eE - mN, 100)

@@ -72,60 +72,40 @@ class Event(object):
                 dt = 0.0
             s += f"1 {pid} 0 0 {px * GeV:.8e} {py * GeV:.8e} {pz * GeV:.8e} {mass * GeV:.8e} {dt * ns:.5e} {self.vertex[0] * mm:.5e} {self.vertex[1] * mm:.5e} {self.vertex[2] * mm:.5e}\n"
         return s
+    def myformat_string(self, i, events):
+        """Return myformat-formatted representation of event for writing to output file.
 
-    def juno_string(self, i, outfile):
+        Input:
+            i: number of event
+            events: list of all events
+        Output:
+            String describing event."""
 
-        class EVENT():
+        GeV = 0.001   # convert from MeV
+        mm = 10       # convert from cm
+        ns = 1000000  # convert from ms
 
-            def __init__(self):
-                self.nparticles = 0
-                self.t = [0,0]
-                self.px = [0,0]
-                self.py = [0,0]
-                self.pz = [0,0]
-                self.nuE = 0
-                self.m = [0,0]
-                self.pdgid = [0,0]
-                self.origPDGID = 0
-                self.channel = 0
-                
-            def fill_root(self,outfile):
+        dt = self.time
+        if i > 0:
+            dt -= events[i - 1].time
 
-                outfile["SNEvents"].extend({"pdgid": [self.pdgid],"px":[self.px],"py":[self.py],"pz":[self.pz],"t":[self.t],"m":[self.m],
-                                            "nuE":[self.nuE], "nparticles":[self.nparticles], "origPDGID":[self.origPDGID], "channel":[self.channel]})
-        
-        evt = EVENT()
-        for idx, (pid, e, dirx, diry, dirz) in enumerate(self.outgoing_particles):
-            mass = 0.0
-            if pid == 11 or pid == -11:
-                mass = 0.5109907
-            if pid == 22:
-                mass = 0.0
-            if pid == 2112:
-                mass = 939.56563
-            if pid == 2212:
-                mass = 938.27205
-            p2 = (e**2) - (mass**2)
+        s = f""
+        for idx, ((out_pid, out_e, out_dirx, out_diry, out_dirz), 
+          (in_pid, in_e, in_dirx, in_diry, in_dirz)) in enumerate(zip(self.outgoing_particles, self.incoming_particles)):
+            if out_pid == 11 or out_pid == -11:
+                out_mass = 0.5109907
+            if out_pid == 22:
+                out_mass = 0.0
+            if out_pid == 2112:
+                out_mass = 939.56563
+            if out_pid == 2212:
+                out_mass = 938.27205
+            p2 = (out_e**2) - (out_mass**2)
             p = p2**0.5
-            evt.px[idx] = dirx * p
-            evt.py[idx] = diry * p
-            evt.pz[idx] = dirz * p
-            evt.m[idx] = mass
-            evt.pdgid[idx]=pid
-
-        if len(self.outgoing_particles) <2:
-            #is elastic scattering, second particle is a neutrino, not visible 
-            evt.px[1]=0
-            evt.py[1]=0
-            evt.pz[1]=0
-            evt.m[1]=0
-            evt.pdgid[1]=0
-
-        evt.nparticles = len(self.outgoing_particles)
-        evt.nuE = self.incoming_particles[0][1]
-        evt.t = [self.time*1e6,0]
-        evt.origPDGID = self.incoming_particles[0][0]
-        evt.channel = self.code
-        
-        EVENT.fill_root(evt,outfile)
-                
+            out_px = out_dirx * p
+            out_py = out_diry * p
+            out_pz = out_dirz * p
+            if idx > 0:
+                dt = 0.0
+            s += f"{out_pid},{out_px * GeV:.8e},{out_py * GeV:.8e},{out_pz * GeV:.8e},{dt * ns:.5e},{in_pid}\n"
+        return s

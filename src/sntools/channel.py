@@ -6,7 +6,7 @@ import random
 from scipy import integrate, interpolate
 
 
-def gen_evts(_channel, _flux, n_targets, seed, verbose):
+def gen_evts(_channel, _flux, n_targets, theta, phi, seed, verbose):
     """Generate events.
 
     * Get event rate by interpolating from time steps in the input data.
@@ -67,8 +67,9 @@ def gen_evts(_channel, _flux, n_targets, seed, verbose):
         # generate events in this time bin
         for _ in range(binned_nevt[i]):
             eNu = get_eNu(binned_t[i])
-            direction = get_direction(eNu)  # (dirx, diry, dirz)
-            evt = channel.generate_event(eNu, *direction)
+            (a,b,cosT)=get_direction(eNu)
+            direction = get_direction2(eNu,theta,phi)  # (dirx, diry, dirz)
+            evt = channel.generate_event(eNu,cosT, theta, phi, *direction)
             evt.time = t0 + random.random() * bin_width
             events.append(evt)
 
@@ -133,3 +134,44 @@ def get_direction(eNu):
     sinT = sin(acos(cosT))
     phi = 2 * pi * random.random()  # randomly distributed in [0, 2 pi)
     return (sinT * cos(phi), sinT * sin(phi), cosT)
+
+def get_direction2(eNu,theta, phi):
+    """Get direction of outgoing particle using rejection sampling.
+    (Assumes that incoming neutrino with energy eNu moves in z direction.)
+    """
+    def dist(cosT):
+        return channel.dSigma_dCosT(eNu, cosT)
+    cosT = rejection_sample(dist, -1, 1, 200)
+    sinT = sin(acos(cosT))
+    phi_random = 2 * np.pi * random.random()  # randomly distributed in [0, 2 pi)
+    
+    # Original direction vector in the particle's frame
+    x = sinT * np.cos(phi_random)
+    y = sinT * np.sin(phi_random)
+    z = cosT
+    
+    # Convert rotation angles from degrees to radians
+    theta_rad = np.radians(theta)
+    phi_rad = np.radians(phi)
+    
+    # Rotation matrices for -theta and -phi (to match lab's frame)
+    # Rotation around z-axis by -phi
+    Rz = np.array([
+        [np.cos(-phi_rad), -np.sin(-phi_rad), 0],
+        [np.sin(-phi_rad), np.cos(-phi_rad), 0],
+        [0, 0, 1]
+    ])
+    
+    # Rotation matrix around y-axis by -theta
+    Ry = np.array([
+        [np.cos(-theta_rad), 0, np.sin(-theta_rad)],
+        [0, 1, 0],
+        [-np.sin(-theta_rad), 0, np.cos(-theta_rad)]
+    ])
+    
+    # Apply rotation around z-axis
+    xyz_rotated = np.dot(Ry, [x, y, z])
+    # Apply rotation around y-axis
+    xyz_rotated = np.dot(Rz, xyz_rotated)
+    
+    return xyz_rotated
